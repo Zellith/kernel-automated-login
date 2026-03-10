@@ -1,0 +1,8 @@
+{
+  "crons": [
+    {
+      "path": "/api/time-in-out",
+      "schedule": "0 8 * * 1-5"
+    }
+  ]
+}
