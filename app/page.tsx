@@ -2,7 +2,9 @@
 
 import { useState } from "react";
 import {
+  timeInOutJobStatusSchema,
   timeInOutResultSchema,
+  type TimeInOutJobStatus,
   type TimeInOutResult,
 } from "@/lib/time-in-out";
 
@@ -11,6 +13,7 @@ export default function Home() {
   const [timeOut, setTimeOut] = useState("16:00");
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<TimeInOutResult | null>(null);
+  const [job, setJob] = useState<TimeInOutJobStatus | null>(null);
 
   function toErrorResult(rawData: unknown, fallbackMessage: string): TimeInOutResult {
     const parsedError = timeInOutResultSchema.safeParse(rawData);
@@ -21,39 +24,87 @@ export default function Home() {
 
     return {
       success: false,
+      loginFormHtml: null,
+      loginErrorHtml: null,
       error: fallbackMessage,
     };
+  }
+
+  async function pollJob(jobId: string) {
+    while (true) {
+      const res = await fetch(`/api/time-in-out/live?jobId=${encodeURIComponent(jobId)}`, {
+        cache: "no-store",
+      });
+
+      const rawData = await res.json();
+      const parsed = timeInOutJobStatusSchema.safeParse(rawData);
+
+      if (!parsed.success) {
+        setResult(
+          toErrorResult(rawData, "Job status endpoint returned an invalid response shape."),
+        );
+        setJob(null);
+        return;
+      }
+
+      setJob(parsed.data);
+
+      if (parsed.data.status === "completed" || parsed.data.status === "failed") {
+        setResult(
+          parsed.data.result ?? {
+            success: false,
+            browserLiveViewUrl: parsed.data.browserLiveViewUrl,
+            replayId: parsed.data.replayId,
+            replayViewUrl: parsed.data.replayViewUrl,
+            replayError: parsed.data.replayError,
+            headless: parsed.data.headless,
+            loginFormHtml: null,
+            loginErrorHtml: null,
+            error: "Automation completed without returning a final result.",
+          },
+        );
+        return;
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, 1200));
+    }
   }
 
   async function handleRun() {
     setLoading(true);
     setResult(null);
+    setJob(null);
 
     try {
-      const res = await fetch("/api/time-in-out", {
+      const res = await fetch("/api/time-in-out/live", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ timeIn, timeOut }),
       });
 
       const rawData = await res.json();
-      const parsed = timeInOutResultSchema.safeParse(rawData);
+      const parsed = timeInOutJobStatusSchema.safeParse(rawData);
 
       if (!parsed.success) {
         setResult(toErrorResult(rawData, "API returned an invalid response shape."));
         return;
       }
 
-      setResult(parsed.data);
+      setJob(parsed.data);
+      await pollJob(parsed.data.jobId);
     } catch (error) {
       setResult({
         success: false,
+        loginFormHtml: null,
+        loginErrorHtml: null,
         error: error instanceof Error ? error.message : "Network error - check console.",
       });
     } finally {
       setLoading(false);
     }
   }
+
+  const liveViewUrl = job?.browserLiveViewUrl ?? result?.browserLiveViewUrl;
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-zinc-50 dark:bg-zinc-900">
@@ -121,7 +172,29 @@ export default function Home() {
 
         {loading && (
           <div className="mt-4 rounded-lg border border-zinc-200 bg-zinc-100/80 p-4 text-sm text-zinc-700 dark:border-zinc-700 dark:bg-zinc-900/40 dark:text-zinc-200">
-            <div>Automation is running. This can take 20-60 seconds depending on login and page load time.</div>
+            <div>
+              Automation is running{job ? ` (${job.status})` : ""}. This can take 20-60 seconds depending on login and page load time.
+            </div>
+            {liveViewUrl && (
+              <>
+                <div className="mt-2 text-xs">
+                  Live view:{" "}
+                  <a
+                    href={liveViewUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="underline"
+                  >
+                    {liveViewUrl}
+                  </a>
+                </div>
+                <iframe
+                  src={liveViewUrl}
+                  title="Kernel Live View"
+                  className="mt-3 h-[520px] w-full rounded-lg border border-zinc-300 bg-white dark:border-zinc-700 dark:bg-zinc-950"
+                />
+              </>
+            )}
           </div>
         )}
 
@@ -243,6 +316,26 @@ export default function Home() {
                     >
                       {result.browserLiveViewUrl}
                     </a>
+                  </div>
+                )}
+                {result.loginErrorHtml && (
+                  <div className="mt-3">
+                    <div className="mb-1 text-xs font-semibold uppercase tracking-wide opacity-80">
+                      Login Error HTML
+                    </div>
+                    <pre className="max-h-52 overflow-auto rounded-md bg-zinc-900/90 p-3 text-xs text-zinc-100">
+                      {result.loginErrorHtml}
+                    </pre>
+                  </div>
+                )}
+                {result.loginFormHtml && (
+                  <div className="mt-3">
+                    <div className="mb-1 text-xs font-semibold uppercase tracking-wide opacity-80">
+                      Login Form HTML
+                    </div>
+                    <pre className="max-h-72 overflow-auto rounded-md bg-zinc-900/90 p-3 text-xs text-zinc-100">
+                      {result.loginFormHtml}
+                    </pre>
                   </div>
                 )}
                 {result.buttonHtml && (

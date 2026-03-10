@@ -39,7 +39,7 @@ cp .env.example .env.local
 | `HRM_USERNAME` | WordPress admin username for hrm.kalicube.com |
 | `HRM_PASSWORD` | WordPress admin password |
 | `KERNEL_HEADLESS` | Optional. Set to `true` to force headless mode. |
-| `KERNEL_HEADFUL` | Optional. Set to `true` to force headful mode in app-level config. |
+| `KERNEL_HEADFUL` | Optional. Set to `true` only for debugging with live view. Headless mode is more reliable for unattended runs. |
 | `KERNEL_STEALTH` | Optional. Kernel stealth mode. Agent Browser defaults this to `true`. |
 | `KERNEL_TIMEOUT_SECONDS` | Optional. Remote browser timeout in seconds. Defaults to `300`. |
 | `CRON_SECRET` | Secret Vercel sends with cron requests (`Authorization: Bearer <secret>`) |

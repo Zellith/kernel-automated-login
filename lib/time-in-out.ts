@@ -13,6 +13,8 @@ export const timeInOutResultSchema = z.object({
   timeIn: timeValueSchema.optional(),
   timeOut: timeValueSchema.optional(),
   foundTimeInOutButton: z.boolean().optional(),
+  loginFormHtml: optionalHtmlSchema,
+  loginErrorHtml: optionalHtmlSchema,
   buttonHtml: optionalHtmlSchema,
   modalHtml: optionalHtmlSchema,
   pageUrl: z.string().optional(),
@@ -28,6 +30,8 @@ export const loginExecutionResultSchema = z.object({
   success: z.boolean(),
   loggedIn: z.boolean(),
   url: z.string(),
+  loginFormHtml: optionalHtmlSchema,
+  loginErrorHtml: optionalHtmlSchema,
   error: z.string().optional(),
 });
 
