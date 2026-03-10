@@ -225,7 +225,7 @@ async function loginToHrm(
   password: string,
 ): Promise<LoginExecutionResult> {
   await page.goto(DAILY_CHECK_URL, {
-    waitUntil: "domcontentloaded",
+    waitUntil: "commit",
     timeout: 25000,
   });
   await page.waitForLoadState("networkidle", { timeout: 10000 }).catch(() => {});
@@ -417,7 +417,7 @@ async function setTimeInOut(
 ): Promise<InspectExecutionResult> {
   if (!page.url().includes("page=hrm-dailycheck-app")) {
     await page.goto(DAILY_CHECK_URL, {
-      waitUntil: "domcontentloaded",
+      waitUntil: "commit",
       timeout: 25000,
     });
   }
