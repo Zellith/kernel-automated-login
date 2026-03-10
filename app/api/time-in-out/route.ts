@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { timeInOutRequestSchema, timeInOutResultSchema } from "@/lib/time-in-out";
 import { runTimeInOut, DEFAULT_TIME_IN, DEFAULT_TIME_OUT } from "@/lib/kernel/client";
 
 /**
@@ -23,8 +24,20 @@ export async function POST(req: NextRequest) {
 
   try {
     const body = await req.json().catch(() => ({}));
-    if (body.timeIn) timeIn = String(body.timeIn);
-    if (body.timeOut) timeOut = String(body.timeOut);
+    const parsedBody = timeInOutRequestSchema.safeParse(body);
+
+    if (!parsedBody.success) {
+      return NextResponse.json(
+        timeInOutResultSchema.parse({
+          success: false,
+          error: "Invalid request body. Expected HH:MM time values.",
+        }),
+        { status: 400 },
+      );
+    }
+
+    if (parsedBody.data.timeIn) timeIn = parsedBody.data.timeIn;
+    if (parsedBody.data.timeOut) timeOut = parsedBody.data.timeOut;
   } catch {
     // No body is fine — use defaults
   }
@@ -34,15 +47,38 @@ export async function POST(req: NextRequest) {
 
     if (!result.success) {
       return NextResponse.json(
-        { success: false, error: result.error },
+        timeInOutResultSchema.parse({
+          success: false,
+          error: result.error,
+          replayId: result.replayId,
+          replayViewUrl: result.replayViewUrl,
+          browserLiveViewUrl: result.browserLiveViewUrl,
+          headless: result.headless,
+          pageUrl: result.pageUrl,
+        }),
         { status: 422 },
       );
     }
 
-    return NextResponse.json({ success: true, timeIn, timeOut });
+    return NextResponse.json(timeInOutResultSchema.parse({
+      success: true,
+      timeIn,
+      timeOut,
+      foundTimeInOutButton: result.foundTimeInOutButton,
+      buttonHtml: result.buttonHtml,
+      modalHtml: result.modalHtml,
+      pageUrl: result.pageUrl,
+      replayId: result.replayId,
+      replayViewUrl: result.replayViewUrl,
+      browserLiveViewUrl: result.browserLiveViewUrl,
+      headless: result.headless,
+    }));
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    return NextResponse.json({ success: false, error: message }, { status: 500 });
+    return NextResponse.json(
+      timeInOutResultSchema.parse({ success: false, error: message }),
+      { status: 500 },
+    );
   }
 }
 
@@ -60,19 +96,38 @@ export async function GET(req: NextRequest) {
 
     if (!result.success) {
       return NextResponse.json(
-        { success: false, error: result.error },
+        timeInOutResultSchema.parse({
+          success: false,
+          error: result.error,
+          replayId: result.replayId,
+          replayViewUrl: result.replayViewUrl,
+          browserLiveViewUrl: result.browserLiveViewUrl,
+          headless: result.headless,
+          pageUrl: result.pageUrl,
+        }),
         { status: 422 },
       );
     }
 
-    return NextResponse.json({
+    return NextResponse.json(timeInOutResultSchema.parse({
       success: true,
       timeIn: DEFAULT_TIME_IN,
       timeOut: DEFAULT_TIME_OUT,
-    });
+      foundTimeInOutButton: result.foundTimeInOutButton,
+      buttonHtml: result.buttonHtml,
+      modalHtml: result.modalHtml,
+      pageUrl: result.pageUrl,
+      replayId: result.replayId,
+      replayViewUrl: result.replayViewUrl,
+      browserLiveViewUrl: result.browserLiveViewUrl,
+      headless: result.headless,
+    }));
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    return NextResponse.json({ success: false, error: message }, { status: 500 });
+    return NextResponse.json(
+      timeInOutResultSchema.parse({ success: false, error: message }),
+      { status: 500 },
+    );
   }
 }
 
@@ -88,6 +143,11 @@ export async function GET(req: NextRequest) {
 function authenticate(req: NextRequest): NextResponse | null {
   const cronSecret = process.env.CRON_SECRET;
   const apiSecret = process.env.API_SECRET;
+
+  // Allow manual runs from the app UI (same-origin browser requests).
+  if (isSameOriginRequest(req)) {
+    return null;
+  }
 
   // Vercel Cron authentication
   if (cronSecret) {
@@ -106,4 +166,23 @@ function authenticate(req: NextRequest): NextResponse | null {
   if (!cronSecret && !apiSecret) return null;
 
   return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+}
+
+function isSameOriginRequest(req: NextRequest): boolean {
+  const originHeader = req.headers.get("origin");
+  if (!originHeader) return false;
+
+  let originHost: string;
+  try {
+    originHost = new URL(originHeader).host;
+  } catch {
+    return false;
+  }
+
+  const requestHost =
+    req.headers.get("x-forwarded-host") ?? req.headers.get("host") ?? "";
+
+  if (!requestHost) return false;
+
+  return originHost === requestHost;
 }

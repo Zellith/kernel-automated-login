@@ -15,7 +15,7 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "HRM Daily Check — Kernel Automated Login",
   description:
-    "Automates daily Time In/Out on hrm.kalicube.com via Kernel.sh browser automation.",
+    "Automates daily Time In/Out on hrm.kalicube.com via Kernel.sh and Agent Browser's native Kernel provider.",
 };
 
 export default function RootLayout({
