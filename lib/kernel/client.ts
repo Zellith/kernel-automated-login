@@ -285,9 +285,81 @@ async function setTimeInOut(
   });
 
   await page.locator("#btn_save_time").click();
-  await ajaxResponsePromise;
+  const ajaxResponse = await ajaxResponsePromise;
+
+  if (!ajaxResponse) {
+    return inspectExecutionResultSchema.parse({
+      success: false,
+      foundTimeInOutButton: true,
+      buttonHtml,
+      modalHtml,
+      pageUrl: page.url(),
+      error: "The save request was never sent after clicking the Time In/Out submit button.",
+    });
+  }
+
+  if (!ajaxResponse.ok()) {
+    return inspectExecutionResultSchema.parse({
+      success: false,
+      foundTimeInOutButton: true,
+      buttonHtml,
+      modalHtml,
+      pageUrl: page.url(),
+      error: `The save request failed with status ${ajaxResponse.status()}.`,
+    });
+  }
+
+  const ajaxResponseText = (await ajaxResponse.text().catch(() => "")).trim();
   await page.waitForLoadState("networkidle", { timeout: 12000 }).catch(() => {});
   await page.waitForTimeout(1500);
+
+  const pageFeedback = await page
+    .evaluate(() => {
+      const selectors = [
+        ".notice-error",
+        ".alert-danger",
+        ".swal2-container .swal2-popup",
+        ".toast-error",
+        ".woocommerce-error",
+      ];
+
+      for (const selector of selectors) {
+        const node = document.querySelector(selector);
+        const text = node?.textContent?.trim();
+        if (text) {
+          return text;
+        }
+      }
+
+      return null;
+    })
+    .catch(() => null);
+
+  if (pageFeedback) {
+    return inspectExecutionResultSchema.parse({
+      success: false,
+      foundTimeInOutButton: true,
+      buttonHtml,
+      modalHtml,
+      pageUrl: page.url(),
+      error: pageFeedback,
+    });
+  }
+
+  if (
+    ajaxResponseText &&
+    /error|failed|invalid|denied|forbidden/i.test(ajaxResponseText) &&
+    ajaxResponseText !== "1"
+  ) {
+    return inspectExecutionResultSchema.parse({
+      success: false,
+      foundTimeInOutButton: true,
+      buttonHtml,
+      modalHtml,
+      pageUrl: page.url(),
+      error: `The save request returned an error response: ${ajaxResponseText}`,
+    });
+  }
 
   return inspectExecutionResultSchema.parse({
     success: true,

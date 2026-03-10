@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { timeInOutRequestSchema, timeInOutResultSchema } from "@/lib/time-in-out";
 import { runTimeInOut, DEFAULT_TIME_IN, DEFAULT_TIME_OUT } from "@/lib/kernel/client";
+import { authenticateRequest } from "@/lib/api-auth";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 /**
  * POST /api/time-in-out
@@ -16,7 +20,7 @@ import { runTimeInOut, DEFAULT_TIME_IN, DEFAULT_TIME_OUT } from "@/lib/kernel/cl
  */
 export async function POST(req: NextRequest) {
   // Authenticate the request
-  const authError = authenticate(req);
+  const authError = authenticateRequest(req);
   if (authError) return authError;
 
   let timeIn = DEFAULT_TIME_IN;
@@ -88,7 +92,7 @@ export async function POST(req: NextRequest) {
  * Same as POST but used by Vercel Cron Jobs (which send GET requests).
  */
 export async function GET(req: NextRequest) {
-  const authError = authenticate(req);
+  const authError = authenticateRequest(req);
   if (authError) return authError;
 
   try {
@@ -131,58 +135,3 @@ export async function GET(req: NextRequest) {
   }
 }
 
-/**
- * Validate incoming requests.
- *
- * Accepts either:
- *   - Vercel Cron: `Authorization: Bearer <CRON_SECRET>`
- *   - Direct API:  `x-api-secret: <API_SECRET>`
- *
- * Returns a 401 response on failure, or null when authenticated.
- */
-function authenticate(req: NextRequest): NextResponse | null {
-  const cronSecret = process.env.CRON_SECRET;
-  const apiSecret = process.env.API_SECRET;
-
-  // Allow manual runs from the app UI (same-origin browser requests).
-  if (isSameOriginRequest(req)) {
-    return null;
-  }
-
-  // Vercel Cron authentication
-  if (cronSecret) {
-    const authHeader = req.headers.get("authorization") ?? "";
-    if (authHeader === `Bearer ${cronSecret}`) return null;
-  }
-
-  // Direct API secret authentication
-  if (apiSecret) {
-    const headerSecret = req.headers.get("x-api-secret") ?? "";
-    if (headerSecret === apiSecret) return null;
-  }
-
-  // Allow unauthenticated access only when neither secret is configured
-  // (e.g. during local development without secrets set up)
-  if (!cronSecret && !apiSecret) return null;
-
-  return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-}
-
-function isSameOriginRequest(req: NextRequest): boolean {
-  const originHeader = req.headers.get("origin");
-  if (!originHeader) return false;
-
-  let originHost: string;
-  try {
-    originHost = new URL(originHeader).host;
-  } catch {
-    return false;
-  }
-
-  const requestHost =
-    req.headers.get("x-forwarded-host") ?? req.headers.get("host") ?? "";
-
-  if (!requestHost) return false;
-
-  return originHost === requestHost;
-}

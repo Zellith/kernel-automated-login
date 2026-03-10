@@ -6,12 +6,13 @@ import {
 } from "@/lib/time-in-out";
 import { DEFAULT_TIME_IN, DEFAULT_TIME_OUT } from "@/lib/kernel/client";
 import { getTimeInOutJob, startTimeInOutJob } from "@/lib/kernel/jobs";
+import { authenticateRequest } from "@/lib/api-auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function POST(req: NextRequest) {
-  const authError = authenticate(req);
+  const authError = authenticateRequest(req);
   if (authError) return authError;
 
   let timeIn = DEFAULT_TIME_IN;
@@ -42,7 +43,7 @@ export async function POST(req: NextRequest) {
 }
 
 export async function GET(req: NextRequest) {
-  const authError = authenticate(req);
+  const authError = authenticateRequest(req);
   if (authError) return authError;
 
   const jobId = req.nextUrl.searchParams.get("jobId");
@@ -68,44 +69,4 @@ export async function GET(req: NextRequest) {
   }
 
   return NextResponse.json(timeInOutJobStatusSchema.parse(job));
-}
-
-function authenticate(req: NextRequest): NextResponse | null {
-  const cronSecret = process.env.CRON_SECRET;
-  const apiSecret = process.env.API_SECRET;
-
-  if (isSameOriginRequest(req)) {
-    return null;
-  }
-
-  if (cronSecret) {
-    const authHeader = req.headers.get("authorization") ?? "";
-    if (authHeader === `Bearer ${cronSecret}`) return null;
-  }
-
-  if (apiSecret) {
-    const headerSecret = req.headers.get("x-api-secret") ?? "";
-    if (headerSecret === apiSecret) return null;
-  }
-
-  if (!cronSecret && !apiSecret) return null;
-
-  return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-}
-
-function isSameOriginRequest(req: NextRequest): boolean {
-  const originHeader = req.headers.get("origin");
-  if (!originHeader) return false;
-
-  let originHost: string;
-  try {
-    originHost = new URL(originHeader).host;
-  } catch {
-    return false;
-  }
-
-  const requestHost = req.headers.get("x-forwarded-host") ?? req.headers.get("host") ?? "";
-  if (!requestHost) return false;
-
-  return originHost === requestHost;
 }

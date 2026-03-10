@@ -15,6 +15,8 @@ A Vercel Next.js app that automates the daily **Time In/Out** entry on [hrm.kali
 
 You can also trigger the automation manually from the web UI or via a direct `POST /api/time-in-out` request.
 
+The web UI now uses the same synchronous `POST /api/time-in-out` route as the manual API call. This avoids unreliable in-memory background jobs in serverless environments and ensures the entered times are submitted by the same code path you use in production.
+
 ## Setup
 
 ### 1. Clone & install
