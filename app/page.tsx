@@ -29,6 +29,18 @@ export default function Home() {
     };
   }
 
+  function getKernelModeLabel(headless: boolean | undefined): string {
+    if (headless === true) {
+      return "Headless";
+    }
+
+    if (headless === false) {
+      return "Headful";
+    }
+
+    return "Unknown";
+  }
+
   async function pollJob(jobId: string) {
     while (true) {
       const res = await fetch(`/api/time-in-out/live?jobId=${encodeURIComponent(jobId)}`, {
@@ -51,6 +63,7 @@ export default function Home() {
           parsed.data.result ?? {
             success: false,
             browserLiveViewUrl: parsed.data.browserLiveViewUrl,
+            browserCdpWsUrl: parsed.data.browserCdpWsUrl,
             headless: parsed.data.headless,
             error: "Automation completed without returning a final result.",
           },
@@ -97,6 +110,7 @@ export default function Home() {
 
   const liveViewUrl = job?.browserLiveViewUrl ?? result?.browserLiveViewUrl;
   const runningExecutionLog = job?.result?.executionLog ?? [];
+  const runningCdpWsUrl = job?.browserCdpWsUrl ?? job?.result?.browserCdpWsUrl;
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-zinc-50 dark:bg-zinc-900">
@@ -180,6 +194,11 @@ export default function Home() {
                 </a>
               </div>
             )}
+            {runningCdpWsUrl && (
+              <div className="mt-1 break-all text-xs opacity-80">
+                CDP WS URL: {runningCdpWsUrl}
+              </div>
+            )}
             {runningExecutionLog.length > 0 && (
               <div className="mt-3">
                 <div className="mb-1 text-xs font-semibold uppercase tracking-wide opacity-80">
@@ -206,7 +225,7 @@ export default function Home() {
                 <div>Time In/Out completed.</div>
 
                 <div className="mt-1">
-                  Kernel mode: <strong>{result.headless ? "Headless" : "Headful"}</strong>
+                  Kernel mode: <strong>{getKernelModeLabel(result.headless)}</strong>
                 </div>
 
                 {result.agentResponse && (
@@ -235,6 +254,12 @@ export default function Home() {
                   </div>
                 )}
 
+                {result.browserCdpWsUrl && (
+                  <div className="mt-1 break-all text-xs opacity-80">
+                    CDP WS URL: {result.browserCdpWsUrl}
+                  </div>
+                )}
+
                 {result.executionLog && result.executionLog.length > 0 && (
                   <div className="mt-3">
                     <div className="mb-1 text-xs font-semibold uppercase tracking-wide opacity-80">
@@ -251,8 +276,13 @@ export default function Home() {
               <>
                 <div>x {result.error}</div>
                 <div className="mt-2 text-xs opacity-80">
-                  Kernel mode: <strong>{result.headless ? "Headless" : "Headful"}</strong>
+                  Kernel mode: <strong>{getKernelModeLabel(result.headless)}</strong>
                 </div>
+                {result.browserCdpWsUrl && (
+                  <div className="mt-1 break-all text-xs opacity-80">
+                    CDP WS URL: {result.browserCdpWsUrl}
+                  </div>
+                )}
                 {result.agentResponse && (
                   <div className="mt-2 rounded-md bg-black/5 p-3 text-sm text-current dark:bg-white/5">
                     {result.agentResponse}

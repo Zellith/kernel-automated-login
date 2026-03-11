@@ -16,6 +16,7 @@ export const timeInOutResultSchema = z.object({
   foundTimeInOutButton: z.boolean().optional(),
   pageUrl: z.string().optional(),
   browserLiveViewUrl: z.string().optional(),
+  browserCdpWsUrl: z.string().optional(),
   headless: z.boolean().optional(),
   error: z.string().optional(),
 });
@@ -24,6 +25,7 @@ export const timeInOutJobStatusSchema = z.object({
   jobId: z.string(),
   status: z.enum(["starting", "running", "completed", "failed"]),
   browserLiveViewUrl: z.string().optional(),
+  browserCdpWsUrl: z.string().optional(),
   headless: z.boolean().optional(),
   result: timeInOutResultSchema.optional(),
 });

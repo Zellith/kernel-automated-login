@@ -99,6 +99,7 @@ export function startTimeInOutJob(timeIn: string, timeOut: string): TimeInOutJob
           success: false,
           executionLog,
           browserLiveViewUrl: toReadOnlyLiveViewUrl(current.browserLiveViewUrl),
+          browserCdpWsUrl: current.browserCdpWsUrl,
           headless: current.headless,
         }),
       });
@@ -111,11 +112,13 @@ export function startTimeInOutJob(timeIn: string, timeOut: string): TimeInOutJob
         ...current,
         status: "running",
         browserLiveViewUrl: toReadOnlyLiveViewUrl(session.browserLiveViewUrl),
+        browserCdpWsUrl: session.browserCdpWsUrl,
         headless: session.headless,
         result: current.result
           ? timeInOutResultSchema.parse({
               ...current.result,
               browserLiveViewUrl: toReadOnlyLiveViewUrl(session.browserLiveViewUrl),
+              browserCdpWsUrl: session.browserCdpWsUrl,
               headless: session.headless,
             })
           : undefined,
@@ -129,6 +132,7 @@ export function startTimeInOutJob(timeIn: string, timeOut: string): TimeInOutJob
         status: result.success ? "completed" : "failed",
         browserLiveViewUrl:
           current?.browserLiveViewUrl ?? toReadOnlyLiveViewUrl(result.browserLiveViewUrl),
+        browserCdpWsUrl: current?.browserCdpWsUrl ?? result.browserCdpWsUrl,
         headless: result.headless,
         result,
       });
@@ -141,10 +145,12 @@ export function startTimeInOutJob(timeIn: string, timeOut: string): TimeInOutJob
         jobId,
         status: "failed",
         browserLiveViewUrl: toReadOnlyLiveViewUrl(current?.browserLiveViewUrl),
+        browserCdpWsUrl: current?.browserCdpWsUrl,
         headless: current?.headless,
         result: timeInOutResultSchema.parse({
           success: false,
           browserLiveViewUrl: toReadOnlyLiveViewUrl(current?.browserLiveViewUrl),
+          browserCdpWsUrl: current?.browserCdpWsUrl,
           headless: current?.headless,
           error: message,
         }),

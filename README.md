@@ -43,6 +43,8 @@ cp .env.example .env.local
 | `CRON_SECRET` | Secret Vercel sends with cron requests (`Authorization: Bearer <secret>`) |
 | `API_SECRET` | Optional secret for direct API calls via `x-api-secret` header |
 
+Important: Next.js expands `$VARNAME` sequences inside `.env` files. If `HRM_PASSWORD` contains a literal `$`, escape it as `\$` or the runtime value will be shorter than the password you intended.
+
 No extra local browser install step is required for the app's runtime path. The app runs entirely through Kernel's remote browser sessions.
 
 ### 3. Run locally
