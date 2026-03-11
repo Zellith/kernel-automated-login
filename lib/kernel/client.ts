@@ -254,50 +254,44 @@ async function runTimeInOutAttempt(
           toolChoice: "none",
         };
       },
-      experimental_onStart: () => {
-        logStep(`Starting GPT-5 orchestration for ${timeIn} to ${timeOut}.`);
-      },
-      experimental_onStepStart: ({ stepNumber }) => {
-        logStep(`Starting LLM step ${stepNumber + 1}.`);
-      },
-      experimental_onToolCallStart: ({ toolCall }) => {
-        logStep(`Invoking ${toolCall.toolName} on the Kernel browser session.`);
-      },
-      experimental_onToolCallFinish: (event) => {
-        if (!event.success) {
-          logStep(`Tool call failed: ${toErrorMessage(event.error)}`);
-          return;
+      onStepFinish: (stepResult) => {
+        logStep(`Completed LLM step with finish reason ${stepResult.finishReason}.`);
+
+        for (const toolCall of stepResult.toolCalls) {
+          logStep(`Invoking ${toolCall.toolName} on the Kernel browser session.`);
         }
 
-        const parsed = kernelToolResponseSchema.safeParse(event.output);
-        if (!parsed.success) {
-          logStep("Tool call finished with an unexpected output shape.");
-          return;
-        }
+        for (const toolResult of stepResult.toolResults) {
+          if (toolResult.toolName !== "playwright_execute") {
+            continue;
+          }
 
-        logStep(
-          parsed.data.success
-            ? "Kernel Playwright execution completed successfully."
-            : `Kernel Playwright execution reported an error: ${parsed.data.error ?? "unknown error"}`,
-        );
+          const parsed = kernelToolResponseSchema.safeParse(toolResult.output);
+          if (!parsed.success) {
+            logStep("Tool call finished with an unexpected output shape.");
+            continue;
+          }
 
-        if (parsed.data.stdout?.trim()) {
-          logStep(`Tool stdout: ${parsed.data.stdout.trim()}`);
-        }
+          logStep(
+            parsed.data.success
+              ? "Kernel Playwright execution completed successfully."
+              : `Kernel Playwright execution reported an error: ${parsed.data.error ?? "unknown error"}`,
+          );
 
-        if (parsed.data.stderr?.trim()) {
-          logStep(`Tool stderr: ${parsed.data.stderr.trim()}`);
+          if (parsed.data.stdout?.trim()) {
+            logStep(`Tool stdout: ${parsed.data.stdout.trim()}`);
+          }
+
+          if (parsed.data.stderr?.trim()) {
+            logStep(`Tool stderr: ${parsed.data.stderr.trim()}`);
+          }
         }
-      },
-      onStepFinish: ({ stepNumber, finishReason }) => {
-        logStep(`Completed LLM step ${stepNumber + 1} with finish reason ${finishReason}.`);
-      },
-      onFinish: ({ totalUsage }) => {
-        logStep(
-          `GPT-5 orchestration finished. Token usage: ${totalUsage.inputTokens} input / ${totalUsage.outputTokens} output.`,
-        );
       },
     });
+
+    logStep(
+      `GPT-5 orchestration finished. Token usage: ${aiResult.totalUsage.inputTokens} input / ${aiResult.totalUsage.outputTokens} output.`,
+    );
 
     const toolResponses = collectToolResponses(aiResult.steps);
     const toolResponse = findLatestPlaywrightToolOutput(toolResponses);
