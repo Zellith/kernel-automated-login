@@ -88,6 +88,21 @@ export function startTimeInOutJob(timeIn: string, timeOut: string): TimeInOutJob
   });
 
   void runTimeInOut(timeIn, timeOut, {
+    onLogUpdate(executionLog) {
+      const current = jobs.get(jobId);
+      if (!current || current.status === "completed" || current.status === "failed") return;
+
+      setJob({
+        ...current,
+        status: current.status === "starting" ? "running" : current.status,
+        result: timeInOutResultSchema.parse({
+          success: false,
+          executionLog,
+          browserLiveViewUrl: toReadOnlyLiveViewUrl(current.browserLiveViewUrl),
+          headless: current.headless,
+        }),
+      });
+    },
     onSessionReady(session) {
       const current = jobs.get(jobId);
       if (!current) return;
@@ -97,6 +112,13 @@ export function startTimeInOutJob(timeIn: string, timeOut: string): TimeInOutJob
         status: "running",
         browserLiveViewUrl: toReadOnlyLiveViewUrl(session.browserLiveViewUrl),
         headless: session.headless,
+        result: current.result
+          ? timeInOutResultSchema.parse({
+              ...current.result,
+              browserLiveViewUrl: toReadOnlyLiveViewUrl(session.browserLiveViewUrl),
+              headless: session.headless,
+            })
+          : undefined,
       });
     },
   })

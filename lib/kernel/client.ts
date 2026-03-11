@@ -1,4 +1,4 @@
-import { openai } from "@ai-sdk/openai";
+import { createOpenAI } from "@ai-sdk/openai";
 import { generateText, stepCountIs } from "ai";
 import { playwrightExecuteTool } from "@onkernel/ai-sdk";
 import Kernel from "@onkernel/sdk";
@@ -39,6 +39,7 @@ export interface RunTimeInOutOptions {
     browserLiveViewUrl?: string;
     headless: boolean;
   }) => void;
+  onLogUpdate?: (executionLog: string[]) => void;
 }
 
 type ExecutionLogFn = (message: string) => void;
@@ -53,7 +54,9 @@ interface RunTimeInOutAttemptOptions extends RunTimeInOutOptions {
   logStep: ExecutionLogFn;
 }
 
-function createExecutionLogger(): { executionLog: string[]; logStep: ExecutionLogFn } {
+function createExecutionLogger(
+  onLogUpdate?: (executionLog: string[]) => void,
+): { executionLog: string[]; logStep: ExecutionLogFn } {
   const executionLog: string[] = [];
 
   return {
@@ -61,6 +64,7 @@ function createExecutionLogger(): { executionLog: string[]; logStep: ExecutionLo
     logStep(message) {
       const line = `[${new Date().toISOString()}] ${message}`;
       executionLog.push(line);
+      onLogUpdate?.([...executionLog]);
       console.info(`[kernel-automated-login] ${line}`);
     },
   };
@@ -201,6 +205,7 @@ async function runTimeInOutAttempt(
   }: RunTimeInOutAttemptOptions,
 ): Promise<TimeInOutResult> {
   const kernel = new Kernel({ apiKey });
+  const openaiProvider = createOpenAI({ apiKey: openAiApiKey });
 
   let sessionId: string | undefined;
   let browserLiveViewUrl: string | undefined;
@@ -228,10 +233,62 @@ async function runTimeInOutAttempt(
       headless: browserSession.headless,
     });
 
-    const aiResult = await generateText({
-      model: openai(OPENAI_MODEL),
+    logStep("Requesting GPT-5 orchestration and forcing the first step to use the Kernel Playwright tool.");
+
+    const handleStepFinish = (stepResult: {
+      finishReason: string;
+      toolCalls: Array<{ toolName: string }>;
+      toolResults: Array<{ toolName: string; output: unknown }>;
+    }) => {
+      logStep(
+        `Completed LLM step with finish reason ${stepResult.finishReason}. Tool calls: ${stepResult.toolCalls.length}. Tool results: ${stepResult.toolResults.length}.`,
+      );
+
+      if (stepResult.toolCalls.length === 0) {
+        logStep("This step completed without any tool call.");
+      }
+
+      for (const toolCall of stepResult.toolCalls) {
+        logStep(`Invoking ${toolCall.toolName} on the Kernel browser session.`);
+      }
+
+      for (const toolResult of stepResult.toolResults) {
+        if (toolResult.toolName !== "playwright_execute") {
+          continue;
+        }
+
+        const parsed = kernelToolResponseSchema.safeParse(toolResult.output);
+        if (!parsed.success) {
+          logStep("Tool call finished with an unexpected output shape.");
+          continue;
+        }
+
+        logStep(
+          parsed.data.success
+            ? "Kernel Playwright execution completed successfully."
+            : `Kernel Playwright execution reported an error: ${parsed.data.error ?? "unknown error"}`,
+        );
+
+        if (parsed.data.stdout?.trim()) {
+          logStep(`Tool stdout: ${parsed.data.stdout.trim()}`);
+        }
+
+        if (parsed.data.stderr?.trim()) {
+          logStep(`Tool stderr: ${parsed.data.stderr.trim()}`);
+        }
+      }
+    };
+
+    let aiResult = await generateText({
+      model: openaiProvider(OPENAI_MODEL),
       system: buildSystemPrompt(),
       prompt: buildAutomationPrompt({ username, password, timeIn, timeOut }),
+      providerOptions: {
+        openai: {
+          parallelToolCalls: false,
+          reasoningEffort: "minimal",
+        },
+      },
       tools: {
         playwright_execute: playwrightExecuteTool({
           client: kernel,
@@ -243,6 +300,7 @@ async function runTimeInOutAttempt(
       prepareStep: ({ stepNumber }) => {
         if (stepNumber === 0) {
           return {
+            activeTools: ["playwright_execute"],
             toolChoice: {
               type: "tool",
               toolName: "playwright_execute",
@@ -251,50 +309,76 @@ async function runTimeInOutAttempt(
         }
 
         return {
+          activeTools: [],
           toolChoice: "none",
         };
       },
-      onStepFinish: (stepResult) => {
-        logStep(`Completed LLM step with finish reason ${stepResult.finishReason}.`);
-
-        for (const toolCall of stepResult.toolCalls) {
-          logStep(`Invoking ${toolCall.toolName} on the Kernel browser session.`);
-        }
-
-        for (const toolResult of stepResult.toolResults) {
-          if (toolResult.toolName !== "playwright_execute") {
-            continue;
-          }
-
-          const parsed = kernelToolResponseSchema.safeParse(toolResult.output);
-          if (!parsed.success) {
-            logStep("Tool call finished with an unexpected output shape.");
-            continue;
-          }
-
-          logStep(
-            parsed.data.success
-              ? "Kernel Playwright execution completed successfully."
-              : `Kernel Playwright execution reported an error: ${parsed.data.error ?? "unknown error"}`,
-          );
-
-          if (parsed.data.stdout?.trim()) {
-            logStep(`Tool stdout: ${parsed.data.stdout.trim()}`);
-          }
-
-          if (parsed.data.stderr?.trim()) {
-            logStep(`Tool stderr: ${parsed.data.stderr.trim()}`);
-          }
-        }
-      },
+      onStepFinish: handleStepFinish,
     });
 
+    const totalToolCalls = aiResult.steps.reduce((count, step) => count + step.toolCalls.length, 0);
+    const totalToolResults = aiResult.steps.reduce((count, step) => count + step.toolResults.length, 0);
+
     logStep(
-      `GPT-5 orchestration finished. Token usage: ${aiResult.totalUsage.inputTokens} input / ${aiResult.totalUsage.outputTokens} output.`,
+      `GPT-5 orchestration finished. Steps: ${aiResult.steps.length}. Tool calls: ${totalToolCalls}. Tool results: ${totalToolResults}. Token usage: ${aiResult.totalUsage.inputTokens} input / ${aiResult.totalUsage.outputTokens} output.`,
     );
 
-    const toolResponses = collectToolResponses(aiResult.steps);
-    const toolResponse = findLatestPlaywrightToolOutput(toolResponses);
+    let toolResponses = collectToolResponses(aiResult.steps);
+    let toolResponse = findLatestPlaywrightToolOutput(toolResponses);
+
+    if (!toolResponse) {
+      logStep(
+        aiResult.text
+          ? `GPT-5 returned text without executing the browser tool: ${aiResult.text}`
+          : "GPT-5 returned without executing the browser tool and without any final text.",
+      );
+
+      if ((aiResult.warnings?.length ?? 0) > 0) {
+        logStep(`GPT-5 returned ${aiResult.warnings!.length} warning(s): ${aiResult.warnings!.map((warning) => JSON.stringify(warning)).join(" | ")}`);
+      }
+
+      logStep("Retrying with a stricter single-step tool-only prompt because the first orchestration produced no browser action.");
+
+      aiResult = await generateText({
+        model: openaiProvider(OPENAI_MODEL),
+        system: buildSystemPrompt(),
+        prompt: `${buildAutomationPrompt({ username, password, timeIn, timeOut })} Your response must be exactly one playwright_execute tool call. Do not output plain text before the tool call, instead of the tool call, or after the tool call.`,
+        providerOptions: {
+          openai: {
+            parallelToolCalls: false,
+            reasoningEffort: "minimal",
+          },
+        },
+        tools: {
+          playwright_execute: playwrightExecuteTool({
+            client: kernel,
+            sessionId,
+            toolDescription: `Execute one Playwright script against the live HRM session. Always pass timeout_sec=${DEFAULT_PLAYWRIGHT_TIMEOUT_SECONDS}.`,
+          }),
+        },
+        activeTools: ["playwright_execute"],
+        toolChoice: {
+          type: "tool",
+          toolName: "playwright_execute",
+        },
+        stopWhen: stepCountIs(1),
+        onStepFinish: handleStepFinish,
+      });
+
+      const fallbackTotalToolCalls = aiResult.steps.reduce((count, step) => count + step.toolCalls.length, 0);
+      const fallbackTotalToolResults = aiResult.steps.reduce((count, step) => count + step.toolResults.length, 0);
+
+      logStep(
+        `Fallback GPT-5 orchestration finished. Steps: ${aiResult.steps.length}. Tool calls: ${fallbackTotalToolCalls}. Tool results: ${fallbackTotalToolResults}. Token usage: ${aiResult.totalUsage.inputTokens} input / ${aiResult.totalUsage.outputTokens} output.`,
+      );
+
+      if ((aiResult.warnings?.length ?? 0) > 0) {
+        logStep(`Fallback GPT-5 warnings: ${aiResult.warnings!.map((warning) => JSON.stringify(warning)).join(" | ")}`);
+      }
+
+      toolResponses = collectToolResponses(aiResult.steps);
+      toolResponse = findLatestPlaywrightToolOutput(toolResponses);
+    }
 
     if (!toolResponse) {
       result = withExecutionLog(
@@ -390,7 +474,7 @@ export async function runTimeInOut(
   timeOut: string = DEFAULT_TIME_OUT,
   options: RunTimeInOutOptions = {},
 ): Promise<TimeInOutResult> {
-  const { executionLog, logStep } = createExecutionLogger();
+  const { executionLog, logStep } = createExecutionLogger(options.onLogUpdate);
 
   logStep(`Starting automation run for ${timeIn} to ${timeOut}.`);
   const apiKey = process.env.KERNEL_API_KEY;
