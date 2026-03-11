@@ -8,6 +8,7 @@
 
 import Kernel from "@onkernel/sdk";
 import { BrowserManager } from "agent-browser/dist/browser.js";
+import type { Locator } from "playwright-core";
 import {
   inspectExecutionResultSchema,
   loginExecutionResultSchema,
@@ -18,8 +19,68 @@ import {
 } from "@/lib/time-in-out";
 
 const DAILY_CHECK_URL = "https://hrm.kalicube.com/wp-admin/admin.php?page=hrm-dailycheck-app";
-const LOGIN_URL_MARKERS = ["/wp-login.php", "/hr-login"];
+const LOGIN_URL_MARKERS = ["/wp-login", "/hr-login"];
 const TUNNEL_CONNECTION_ERROR_MARKER = "ERR_TUNNEL_CONNECTION_FAILED";
+
+/**
+ * Ordered list of CSS selectors used to locate the login form.
+ * The first matching selector wins.
+ */
+const LOGIN_FORM_SELECTORS = [
+  'form#loginform',
+  'form[name="loginform"]',
+  'form#login-form',
+  'form.login-form',
+  'form[action*="wp-login.php"]',
+  'form[action*="hr-login"]',
+];
+
+/**
+ * Ordered list of CSS selectors for the username / email field.
+ */
+const USERNAME_FIELD_SELECTORS = [
+  '#user_login',
+  'input[name="log"]',
+  'input[name="username"]',
+  'input[name="user_login"]',
+  'input[id*="user_login"]',
+  'input[id*="username"]',
+  'input[autocomplete="username"]',
+  'input[type="email"]',
+  'input[type="text"][name*="user"]',
+  'input[type="text"][id*="user"]',
+];
+
+/**
+ * Ordered list of CSS selectors for the password field.
+ */
+const PASSWORD_FIELD_SELECTORS = [
+  '#user_pass',
+  'input[name="pwd"]',
+  'input[name="password"]',
+  'input[name="user_pass"]',
+  'input[id*="user_pass"]',
+  'input[autocomplete="current-password"]',
+  'input[type="password"]',
+];
+
+/**
+ * Ordered list of CSS selectors for the login submit button.
+ */
+const SUBMIT_BUTTON_SELECTORS = [
+  '#wp-submit',
+  'input[type="submit"]',
+  'button[type="submit"]',
+  '.login-submit input',
+  '.login-submit button',
+  'button.submit',
+];
+
+/**
+ * CSS selector for login error / feedback messages shown after a failed attempt.
+ */
+const LOGIN_ERROR_SELECTOR =
+  "#login_error, .login-error, .notice-error, .woocommerce-error, .message, .login-message, .alert-danger, .alert-error";
 
 /** Default time-in and time-out values for the daily check. */
 export const DEFAULT_TIME_IN = "08:00";
@@ -219,6 +280,23 @@ async function runTimeInOutAttempt(
   }
 }
 
+/**
+ * Find the first visible locator from an ordered list of CSS selectors,
+ * scoped within a given parent locator.
+ */
+async function findFirstLocator(
+  parent: Locator,
+  selectors: string[],
+): Promise<Locator | null> {
+  for (const selector of selectors) {
+    const loc = parent.locator(selector).first();
+    if ((await loc.count().catch(() => 0)) > 0) {
+      return loc;
+    }
+  }
+  return null;
+}
+
 async function loginToHrm(
   page: Awaited<ReturnType<BrowserManager["getPage"]>>,
   username: string,
@@ -241,63 +319,67 @@ async function loginToHrm(
     });
   }
 
-  if (!LOGIN_URL_MARKERS.some((marker) => currentUrl.includes(marker))) {
+  const isLoginPage = LOGIN_URL_MARKERS.some((marker) => currentUrl.includes(marker));
+  if (!isLoginPage) {
     return loginExecutionResultSchema.parse({
       success: true,
       loggedIn: false,
       url: currentUrl,
       loginFormHtml: null,
       loginErrorHtml: null,
-      error: "Expected WordPress login redirect but landed elsewhere.",
+      error: `Expected a login page redirect but landed on an unexpected URL: ${currentUrl}`,
     });
   }
 
-  await page.waitForSelector('form#loginform, form[name="loginform"]', { timeout: 10000 }).catch(() => {});
+  // Wait for any of the known login form selectors to appear.
+  const combinedFormSelector = LOGIN_FORM_SELECTORS.join(", ");
+  await page.waitForSelector(combinedFormSelector, { timeout: 15000 }).catch(() => {});
+  // Give JavaScript-driven forms a moment to fully initialise.
+  await page.waitForTimeout(500);
 
-  const loginForm = page.locator('form#loginform, form[name="loginform"]').first();
+  const loginForm = page.locator(combinedFormSelector).first();
   if ((await loginForm.count().catch(() => 0)) === 0) {
+    const pageHtml = await page.content().catch(() => null);
     return loginExecutionResultSchema.parse({
       success: true,
       loggedIn: false,
       url: currentUrl,
-      loginFormHtml: null,
+      loginFormHtml: pageHtml,
       loginErrorHtml: null,
-      error: "Could not find WordPress login form.",
+      error: `Could not find a login form on ${currentUrl}. Tried selectors: ${combinedFormSelector}`,
     });
   }
 
   const loginFormHtml = await loginForm.evaluate((node) => node.outerHTML).catch(() => null);
 
-  const userField = loginForm.locator('#user_login, input[name="log"]').first();
-  const passwordField = loginForm.locator('#user_pass, input[name="pwd"]').first();
-  const submitButton = loginForm.locator('#wp-submit, button[type="submit"], input[type="submit"]').first();
-  const redirectField = loginForm.locator('input[name="redirect_to"]').first();
-
-  if ((await userField.count().catch(() => 0)) === 0) {
+  const userField = await findFirstLocator(loginForm, USERNAME_FIELD_SELECTORS);
+  if (!userField) {
     return loginExecutionResultSchema.parse({
       success: true,
       loggedIn: false,
       url: currentUrl,
       loginFormHtml,
       loginErrorHtml: null,
-      error: "Could not find username field on the login page.",
+      error: `Could not find a username/email field on ${currentUrl}. Tried selectors: ${USERNAME_FIELD_SELECTORS.join(", ")}`,
     });
   }
 
-  if ((await passwordField.count().catch(() => 0)) === 0) {
+  const passwordField = await findFirstLocator(loginForm, PASSWORD_FIELD_SELECTORS);
+  if (!passwordField) {
     return loginExecutionResultSchema.parse({
       success: true,
       loggedIn: false,
       url: currentUrl,
       loginFormHtml,
       loginErrorHtml: null,
-      error: "Could not find password field on the login page.",
+      error: `Could not find a password field on ${currentUrl}. Tried selectors: ${PASSWORD_FIELD_SELECTORS.join(", ")}`,
     });
   }
 
   await userField.fill(username);
   await passwordField.fill(password);
 
+  const redirectField = loginForm.locator('input[name="redirect_to"]').first();
   if ((await redirectField.count().catch(() => 0)) > 0) {
     await redirectField
       .evaluate((node, value) => {
@@ -309,14 +391,15 @@ async function loginToHrm(
       .catch(() => {});
   }
 
-  if ((await submitButton.count().catch(() => 0)) === 0) {
+  const submitButton = await findFirstLocator(loginForm, SUBMIT_BUTTON_SELECTORS);
+  if (!submitButton) {
     return loginExecutionResultSchema.parse({
       success: true,
       loggedIn: false,
       url: currentUrl,
       loginFormHtml,
       loginErrorHtml: null,
-      error: "Could not find login submit button.",
+      error: `Could not find a submit button on ${currentUrl}. Tried selectors: ${SUBMIT_BUTTON_SELECTORS.join(", ")}`,
     });
   }
 
@@ -328,7 +411,7 @@ async function loginToHrm(
             return false;
           }
 
-          return response.url().includes("/wp-login.php") || response.url().includes("/hr-login");
+          return LOGIN_URL_MARKERS.some((marker) => response.url().includes(marker));
         },
         { timeout: 12000 },
       )
@@ -358,7 +441,7 @@ async function loginToHrm(
     .waitForURL(
       (url) =>
         url.href.includes("page=hrm-dailycheck-app") ||
-        (!url.href.includes("/wp-login.php") && !url.href.includes("/hr-login")),
+        LOGIN_URL_MARKERS.every((marker) => !url.href.includes(marker)),
       { timeout: 20000 },
     )
     .catch(() => {});
@@ -377,11 +460,9 @@ async function loginToHrm(
   }
 
   const loginState = await page
-    .evaluate(() => {
-      const errorNode = document.querySelector(
-        "#login_error, .login-error, .notice-error, .woocommerce-error, .message, .login-message",
-      );
-      const formNode = document.querySelector('form#loginform, form[name="loginform"]');
+    .evaluate((selectors) => {
+      const errorNode = document.querySelector(selectors.error);
+      const formNode = document.querySelector(selectors.form);
       const title = document.title?.trim() || null;
 
       return {
@@ -390,14 +471,15 @@ async function loginToHrm(
         formHtml: formNode ? formNode.outerHTML : null,
         title,
       };
-    })
+    }, { error: LOGIN_ERROR_SELECTOR, form: combinedFormSelector })
     .catch(() => ({ errorText: null, errorHtml: null, formHtml: null, title: null }));
 
   const detailParts = [
     loginState.errorText,
     loginResponse ? `login response status ${loginResponse.status()}` : null,
     loginResponse ? `login response url ${loginResponse.url()}` : null,
-    loginState.title ? `page title ${loginState.title}` : null,
+    loginState.title ? `page title: ${loginState.title}` : null,
+    `current url: ${currentUrl}`,
   ].filter(Boolean);
 
   return loginExecutionResultSchema.parse({
