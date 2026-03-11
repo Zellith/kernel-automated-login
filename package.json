@@ -9,8 +9,10 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@ai-sdk/openai": "^3.0.41",
+    "@onkernel/ai-sdk": "^0.0.3",
     "@onkernel/sdk": "^0.42.1",
-    "agent-browser": "^0.17.1",
+    "ai": "^6.0.116",
     "next": "16.1.6",
     "react": "19.2.3",
     "react-dom": "19.2.3",

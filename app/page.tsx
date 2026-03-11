@@ -1,19 +1,13 @@
 "use client";
 
 import { useState } from "react";
-import {
-  timeInOutJobStatusSchema,
-  timeInOutResultSchema,
-  type TimeInOutJobStatus,
-  type TimeInOutResult,
-} from "@/lib/time-in-out";
+import { timeInOutResultSchema, type TimeInOutResult } from "@/lib/time-in-out";
 
 export default function Home() {
   const [timeIn, setTimeIn] = useState("08:00");
   const [timeOut, setTimeOut] = useState("16:00");
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<TimeInOutResult | null>(null);
-  const [job, setJob] = useState<TimeInOutJobStatus | null>(null);
 
   function toErrorResult(rawData: unknown, fallbackMessage: string): TimeInOutResult {
     const parsedError = timeInOutResultSchema.safeParse(rawData);
@@ -24,79 +18,35 @@ export default function Home() {
 
     return {
       success: false,
-      loginFormHtml: null,
-      loginErrorHtml: null,
+      executionLog: [],
       error: fallbackMessage,
     };
-  }
-
-  async function pollJob(jobId: string) {
-    while (true) {
-      const res = await fetch(`/api/time-in-out/live?jobId=${encodeURIComponent(jobId)}`, {
-        cache: "no-store",
-      });
-
-      const rawData = await res.json();
-      const parsed = timeInOutJobStatusSchema.safeParse(rawData);
-
-      if (!parsed.success) {
-        setResult(
-          toErrorResult(rawData, "Job status endpoint returned an invalid response shape."),
-        );
-        setJob(null);
-        return;
-      }
-
-      setJob(parsed.data);
-
-      if (parsed.data.status === "completed" || parsed.data.status === "failed") {
-        setResult(
-          parsed.data.result ?? {
-            success: false,
-            browserLiveViewUrl: parsed.data.browserLiveViewUrl,
-            replayId: parsed.data.replayId,
-            replayViewUrl: parsed.data.replayViewUrl,
-            replayError: parsed.data.replayError,
-            headless: parsed.data.headless,
-            loginFormHtml: null,
-            loginErrorHtml: null,
-            error: "Automation completed without returning a final result.",
-          },
-        );
-        return;
-      }
-
-      await new Promise((resolve) => setTimeout(resolve, 1200));
-    }
   }
 
   async function handleRun() {
     setLoading(true);
     setResult(null);
-    setJob(null);
 
     try {
-      const res = await fetch("/api/time-in-out/live", {
+      const res = await fetch("/api/time-in-out", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ timeIn, timeOut }),
       });
 
       const rawData = await res.json();
-      const parsed = timeInOutJobStatusSchema.safeParse(rawData);
+      const parsed = timeInOutResultSchema.safeParse(rawData);
 
       if (!parsed.success) {
         setResult(toErrorResult(rawData, "API returned an invalid response shape."));
         return;
       }
 
-      setJob(parsed.data);
-      await pollJob(parsed.data.jobId);
+      setResult(parsed.data);
     } catch (error) {
       setResult({
         success: false,
-        loginFormHtml: null,
-        loginErrorHtml: null,
+        executionLog: [],
         error: error instanceof Error ? error.message : "Network error - check console.",
       });
     } finally {
@@ -104,7 +54,7 @@ export default function Home() {
     }
   }
 
-  const liveViewUrl = job?.browserLiveViewUrl ?? result?.browserLiveViewUrl;
+  const liveViewUrl = result?.browserLiveViewUrl;
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-zinc-50 dark:bg-zinc-900">
@@ -173,28 +123,8 @@ export default function Home() {
         {loading && (
           <div className="mt-4 rounded-lg border border-zinc-200 bg-zinc-100/80 p-4 text-sm text-zinc-700 dark:border-zinc-700 dark:bg-zinc-900/40 dark:text-zinc-200">
             <div>
-              Automation is running{job ? ` (${job.status})` : ""}. This can take 20-60 seconds depending on login and page load time.
+              Automation is running. This can take 20-60 seconds depending on login and page load time.
             </div>
-            {liveViewUrl && (
-              <>
-                <div className="mt-2 text-xs">
-                  Live view:{" "}
-                  <a
-                    href={liveViewUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="underline"
-                  >
-                    {liveViewUrl}
-                  </a>
-                </div>
-                <iframe
-                  src={liveViewUrl}
-                  title="Kernel Live View"
-                  className="mt-3 h-[520px] w-full rounded-lg border border-zinc-300 bg-white dark:border-zinc-700 dark:bg-zinc-950"
-                />
-              </>
-            )}
           </div>
         )}
 
@@ -209,37 +139,21 @@ export default function Home() {
             {result.success ? (
               <>
                 <div>Time In/Out completed.</div>
-                <div className="mt-1">
-                  Found Time In/Out button:{" "}
-                  <strong>{result.foundTimeInOutButton ? "Yes" : "No"}</strong>
-                </div>
 
                 <div className="mt-1">
                   Kernel mode: <strong>{result.headless ? "Headless" : "Headful"}</strong>
                 </div>
 
+                {result.agentResponse && (
+                  <div className="mt-2 rounded-md bg-white/60 p-3 text-sm text-zinc-800 dark:bg-zinc-950/30 dark:text-zinc-100">
+                    {result.agentResponse}
+                  </div>
+                )}
+
                 {result.pageUrl && (
                   <div className="mt-1 break-all text-xs opacity-80">
                     URL: {result.pageUrl}
                   </div>
-                )}
-
-                {result.replayViewUrl && (
-                  <div className="mt-2 text-xs">
-                    Replay:{" "}
-                    <a
-                      href={result.replayViewUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="underline"
-                    >
-                      {result.replayViewUrl}
-                    </a>
-                  </div>
-                )}
-
-                {result.replayError && (
-                  <div className="mt-1 text-xs opacity-80">Replay issue: {result.replayError}</div>
                 )}
 
                 {result.browserLiveViewUrl && (
@@ -256,27 +170,17 @@ export default function Home() {
                   </div>
                 )}
 
-                {result.buttonHtml && (
+                {result.executionLog && result.executionLog.length > 0 && (
                   <div className="mt-3">
                     <div className="mb-1 text-xs font-semibold uppercase tracking-wide opacity-80">
-                      Time In/Out Button HTML
+                      Execution Log
                     </div>
-                    <pre className="max-h-52 overflow-auto rounded-md bg-zinc-900/90 p-3 text-xs text-zinc-100">
-                      {result.buttonHtml}
+                    <pre className="max-h-72 overflow-auto rounded-md bg-zinc-900/90 p-3 text-xs text-zinc-100">
+                      {result.executionLog.join("\n")}
                     </pre>
                   </div>
                 )}
 
-                {result.modalHtml && (
-                  <div className="mt-3">
-                    <div className="mb-1 text-xs font-semibold uppercase tracking-wide opacity-80">
-                      Modal HTML
-                    </div>
-                    <pre className="max-h-72 overflow-auto rounded-md bg-zinc-900/90 p-3 text-xs text-zinc-100">
-                      {result.modalHtml}
-                    </pre>
-                  </div>
-                )}
               </>
             ) : (
               <>
@@ -284,26 +188,15 @@ export default function Home() {
                 <div className="mt-2 text-xs opacity-80">
                   Kernel mode: <strong>{result.headless ? "Headless" : "Headful"}</strong>
                 </div>
+                {result.agentResponse && (
+                  <div className="mt-2 rounded-md bg-black/5 p-3 text-sm text-current dark:bg-white/5">
+                    {result.agentResponse}
+                  </div>
+                )}
                 {result.pageUrl && (
                   <div className="mt-1 break-all text-xs opacity-80">
                     URL: {result.pageUrl}
                   </div>
-                )}
-                {result.replayViewUrl && (
-                  <div className="mt-1 text-xs">
-                    Replay:{" "}
-                    <a
-                      href={result.replayViewUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="underline"
-                    >
-                      {result.replayViewUrl}
-                    </a>
-                  </div>
-                )}
-                {result.replayError && (
-                  <div className="mt-1 text-xs opacity-80">Replay issue: {result.replayError}</div>
                 )}
                 {result.browserLiveViewUrl && (
                   <div className="mt-1 text-xs">
@@ -318,43 +211,13 @@ export default function Home() {
                     </a>
                   </div>
                 )}
-                {result.loginErrorHtml && (
+                {result.executionLog && result.executionLog.length > 0 && (
                   <div className="mt-3">
                     <div className="mb-1 text-xs font-semibold uppercase tracking-wide opacity-80">
-                      Login Error HTML
-                    </div>
-                    <pre className="max-h-52 overflow-auto rounded-md bg-zinc-900/90 p-3 text-xs text-zinc-100">
-                      {result.loginErrorHtml}
-                    </pre>
-                  </div>
-                )}
-                {result.loginFormHtml && (
-                  <div className="mt-3">
-                    <div className="mb-1 text-xs font-semibold uppercase tracking-wide opacity-80">
-                      Login Form HTML
+                      Execution Log
                     </div>
                     <pre className="max-h-72 overflow-auto rounded-md bg-zinc-900/90 p-3 text-xs text-zinc-100">
-                      {result.loginFormHtml}
-                    </pre>
-                  </div>
-                )}
-                {result.buttonHtml && (
-                  <div className="mt-3">
-                    <div className="mb-1 text-xs font-semibold uppercase tracking-wide opacity-80">
-                      Time In/Out Button HTML
-                    </div>
-                    <pre className="max-h-52 overflow-auto rounded-md bg-zinc-900/90 p-3 text-xs text-zinc-100">
-                      {result.buttonHtml}
-                    </pre>
-                  </div>
-                )}
-                {result.modalHtml && (
-                  <div className="mt-3">
-                    <div className="mb-1 text-xs font-semibold uppercase tracking-wide opacity-80">
-                      Modal HTML
-                    </div>
-                    <pre className="max-h-72 overflow-auto rounded-md bg-zinc-900/90 p-3 text-xs text-zinc-100">
-                      {result.modalHtml}
+                      {result.executionLog.join("\n")}
                     </pre>
                   </div>
                 )}

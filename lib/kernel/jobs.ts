@@ -96,9 +96,6 @@ export function startTimeInOutJob(timeIn: string, timeOut: string): TimeInOutJob
         ...current,
         status: "running",
         browserLiveViewUrl: toReadOnlyLiveViewUrl(session.browserLiveViewUrl),
-        replayId: session.replayId,
-        replayViewUrl: session.replayViewUrl,
-        replayError: session.replayError,
         headless: session.headless,
       });
     },
@@ -110,9 +107,6 @@ export function startTimeInOutJob(timeIn: string, timeOut: string): TimeInOutJob
         status: result.success ? "completed" : "failed",
         browserLiveViewUrl:
           current?.browserLiveViewUrl ?? toReadOnlyLiveViewUrl(result.browserLiveViewUrl),
-        replayId: result.replayId,
-        replayViewUrl: result.replayViewUrl,
-        replayError: result.replayError,
         headless: result.headless,
         result,
       });
@@ -125,16 +119,10 @@ export function startTimeInOutJob(timeIn: string, timeOut: string): TimeInOutJob
         jobId,
         status: "failed",
         browserLiveViewUrl: toReadOnlyLiveViewUrl(current?.browserLiveViewUrl),
-        replayId: current?.replayId,
-        replayViewUrl: current?.replayViewUrl,
-        replayError: current?.replayError,
         headless: current?.headless,
         result: timeInOutResultSchema.parse({
           success: false,
           browserLiveViewUrl: toReadOnlyLiveViewUrl(current?.browserLiveViewUrl),
-          replayId: current?.replayId,
-          replayViewUrl: current?.replayViewUrl,
-          replayError: current?.replayError,
           headless: current?.headless,
           error: message,
         }),
